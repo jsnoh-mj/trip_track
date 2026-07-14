@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trailfilm — 여정 재생기</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.7.3/maplibre-gl.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.7.3/maplibre-gl.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --night:#0a1120;
+    --panel: rgba(16,26,46,0.72);
+    --panel-solid:#0f1a2e;
+    --line: rgba(245,243,237,0.10);
+    --trail:#ff7a45;
+    --trail-dim: rgba(255,122,69,0.28);
+    --teal:#39d3c3;
+    --paper:#f4efe4;
+    --ink:#0d1420;
+    --text:#f5f3ed;
+    --muted:#94a0b8;
+    --editPanelW:352px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--night);font-family:'Inter',sans-serif;color:var(--text);overflow:hidden;}
+  #map{position:absolute;inset:0;}
+
+  /* ---------- Upload screen ---------- */
+  #uploadScreen{
+    position:absolute;inset:0;z-index:50;
+    display:flex;align-items:center;justify-content:center;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(255,122,69,0.10), transparent 55%),
+      radial-gradient(ellipse at 75% 80%, rgba(57,211,195,0.08), transparent 55%),
+      var(--night);
+    overflow-y:auto;padding:24px 0;
+  }
+  .card{
+    width:min(560px,92vw);
+    max-height:92vh;
+    overflow-y:auto;
+    background:var(--panel-solid);
+    border:1px solid var(--line);
+    border-radius:18px;
+    padding:38px 36px 32px;
+    box-shadow:0 30px 80px rgba(0,0,0,0.55);
+  }
+  .eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:var(--trail);text-transform:uppercase;margin-bottom:10px;}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:32px;line-height:1.15;margin:0 0 8px;letter-spacing:-.01em;}
+  .sub{color:var(--muted);font-size:14.5px;line-height:1.6;margin:0 0 26px;}
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:8px;font-weight:500;}
+  .field input[type=text], .field textarea{
+    width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:10px;
+    color:var(--text);font-family:'Inter',sans-serif;font-size:13.5px;padding:10px 12px;outline:none;resize:vertical;
+  }
+  .field input[type=text]:focus, .field textarea:focus{border-color:var(--trail);}
+  .drop{
+    border:1.5px dashed rgba(245,243,237,0.22);
+    border-radius:12px;padding:16px 18px;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    cursor:pointer;transition:border-color .15s, background .15s;
+    background:rgba(255,255,255,0.02);
+  }
+  .drop:hover{border-color:var(--trail);background:rgba(255,122,69,0.06);}
+  .drop.filled{border-style:solid;border-color:var(--teal);background:rgba(57,211,195,0.07);}
+  .drop .name{font-size:13.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .drop .hint{font-size:12px;color:var(--muted);flex-shrink:0;}
+  .drop input{display:none;}
+  .rangeRow{display:flex;align-items:center;gap:10px;}
+  .rangeRow input[type=range]{flex:1;accent-color:var(--trail);}
+  .rangeRow .rv{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal);min-width:38px;text-align:right;}
+
+  #startBtn{
+    width:100%;margin-top:8px;padding:14px 20px;border:none;border-radius:11px;
+    background:var(--trail);color:#1a0d05;font-weight:700;font-size:15px;font-family:'Inter',sans-serif;
+    cursor:pointer;transition:transform .15s, filter .15s;letter-spacing:.01em;
+  }
+  #startBtn:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px);}
+  #startBtn:disabled{background:rgba(245,243,237,0.10);color:var(--muted);cursor:not-allowed;}
+  #statusLine{font-size:12.5px;color:var(--muted);margin-top:12px;min-height:16px;font-family:'JetBrains Mono',monospace;}
+
+  /* ---------- Playback UI ---------- */
+  #hud{position:absolute;inset:0;z-index:20;pointer-events:none;display:none;transition:right .25s ease;}
+  #hud.active{display:block;}
+  body.editing #hud{right:var(--editPanelW);}
+  body.editing #map{right:var(--editPanelW);transition:right .25s ease;}
+
+  #topBar{
+    position:absolute;top:18px;left:18px;right:18px;
+    display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;
+  }
+  #titleBlock{pointer-events:auto;background:var(--panel);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:12px;padding:10px 16px;}
+  #titleBlock .eyebrow{margin-bottom:2px;}
+  #titleBlock h2{font-family:'Fraunces',serif;font-size:17px;margin:0;font-weight:600;}
+  #statTiles{display:flex;gap:8px;pointer-events:auto;}
+  .tile{background:var(--panel);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:12px;padding:8px 14px;text-align:right;min-width:74px;}
+  .tile .v{font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--teal);}
+  .tile .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px;}
+
+  #modeToggle{
+    position:absolute;top:78px;pointer-events:auto;
+    background:var(--panel);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:10px;
+    padding:8px 12px;font-size:11.5px;color:var(--text);cursor:pointer;font-family:'JetBrains Mono',monospace;
+    z-index:40;
+  }
+  body:not(.editing) #modeToggle{right:18px;}
+  body.editing #modeToggle{right:calc(var(--editPanelW) + 14px);}
+
+  /* story card (photo / video / intro share this; comments use #commentFloat instead) */
+  #storyCard{
+    position:absolute;pointer-events:auto;
+    width:400px;
+    background:var(--paper);
+    border-radius:5px;
+    padding:10px 10px 14px;
+    box-shadow:0 30px 65px rgba(0,0,0,0.55), 0 2px 0 rgba(255,255,255,0.5) inset;
+    transform:translate(-50%,-100%) translateY(46px) rotate(-3deg) scale(0.7);
+    opacity:0;
+    transition:opacity .55s cubic-bezier(.22,1,.36,1), transform .68s cubic-bezier(.22,1.32,.36,1);
+    z-index:30;
+  }
+  #storyCard.show{opacity:1;transform:translate(-50%,-100%) translateY(-52px) rotate(-1.5deg) scale(1);}
+  #storyCard .stem{position:absolute;left:50%;bottom:-58px;width:2px;height:56px;background:linear-gradient(var(--trail),transparent);transform:translateX(-50%);}
+  #storyMediaWrap{width:100%;aspect-ratio:4/3;background:#111;border-radius:3px;overflow:hidden;position:relative;z-index:1;}
+  #storyImg{width:100%;height:100%;display:block;object-fit:cover;}
+  #storyVideo{width:100%;height:100%;display:block;object-fit:cover;background:#000;}
+  #storyMeta{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8a7f6a;margin-top:9px;letter-spacing:.02em;}
+  #storyCap{
+    font-family:'Fraunces',serif;font-style:italic;font-size:23px;
+    margin-top:12px;line-height:1.4;outline:none;min-height:28px;
+  }
+  #storyReadbar{margin-top:11px;height:3px;background:rgba(13,20,32,0.1);border-radius:2px;overflow:hidden;}
+  #storyReadbarFill{height:100%;width:100%;background:var(--trail);border-radius:2px;transform-origin:left center;transition:transform linear;}
+  #storyCard .pin{
+    position:absolute;left:50%;bottom:-43px;transform:translateX(-50%);
+    width:14px;height:14px;background:var(--trail);border-radius:50%;
+    box-shadow:0 0 0 4px rgba(255,122,69,0.25), 0 3px 8px rgba(0,0,0,0.4);
+  }
+  #storyCard .close{
+    position:absolute;top:8px;right:8px;font-size:14px;color:#6b6152;cursor:pointer;line-height:1;
+    background:rgba(255,255,255,0.75);border:none;font-family:'JetBrains Mono',monospace;z-index:10;
+    width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 2px 6px rgba(0,0,0,0.25);
+  }
+
+  /* comment-only cards: plain floating text, no card chrome, larger font, balloons above the point */
+  #commentFloat{
+    position:absolute;pointer-events:auto;max-width:460px;text-align:center;
+    transform:translate(-50%,-100%) translateY(40px) scale(0.7);
+    opacity:0;
+    transition:opacity .5s cubic-bezier(.22,1,.36,1), transform .62s cubic-bezier(.22,1.3,.36,1);
+    z-index:30;
+  }
+  #commentFloat.show{opacity:1;transform:translate(-50%,-100%) translateY(-46px) scale(1);}
+  #commentFloat .close{position:absolute;top:-14px;right:-6px;font-size:14px;color:rgba(255,255,255,0.5);cursor:pointer;background:none;border:none;font-family:'JetBrains Mono',monospace;}
+  #commentFloat .txt{
+    font-family:'Fraunces',serif;font-style:italic;font-weight:600;font-size:37px;line-height:1.32;
+    outline:none;text-shadow:0 2px 16px rgba(0,0,0,0.9), 0 1px 4px rgba(0,0,0,0.85);
+  }
+  #commentFloat .dot{width:12px;height:12px;border-radius:50%;margin:12px auto 0;box-shadow:0 3px 10px rgba(0,0,0,0.5);}
+  #commentFloat .stem{width:2px;height:44px;margin:0 auto;background:linear-gradient(rgba(255,255,255,0.7),transparent);}
+  #commentFloat .bar{width:90px;height:2px;background:rgba(255,255,255,0.25);margin:8px auto 0;border-radius:2px;overflow:hidden;}
+  #commentFloat .bar-fill{height:100%;width:100%;transform-origin:left center;background:rgba(255,255,255,0.85);}
+
+  /* intro (title) card */
+  #introCard{
+    position:absolute;left:50%;top:50%;pointer-events:auto;
+    width:min(460px,86vw);
+    background:var(--panel-solid);border:1px solid var(--line);border-radius:18px;
+    overflow:hidden;box-shadow:0 34px 90px rgba(0,0,0,0.55);
+    transform:translate(-50%,-50%) scale(0.85);opacity:0;
+    transition:opacity .5s ease, transform .5s cubic-bezier(.22,1.2,.36,1), width .3s ease;
+    z-index:35;text-align:center;
+  }
+  #introCard.show{opacity:1;transform:translate(-50%,-50%) scale(1);}
+  #introCard.has-image{width:min(600px,90vw);text-align:left;}
+  #introCard .introTop{height:5px;background:linear-gradient(90deg,var(--trail),var(--teal));}
+  #introCard.has-image .introTop{display:none;}
+  #introCard .introImgWrap{display:none;width:100%;aspect-ratio:16/10;position:relative;overflow:hidden;background:#111;}
+  #introCard.has-image .introImgWrap{display:block;}
+  #introCard .introImgWrap img{width:100%;height:100%;object-fit:cover;display:block;}
+  #introCard .introImgWrap::after{content:'';position:absolute;inset:0;background:linear-gradient(to top, var(--panel-solid) 2%, rgba(15,26,46,0.25) 45%, transparent 100%);}
+  #introCard .introBody{padding:36px 34px 30px;}
+  #introCard.has-image .introBody{padding:0 34px 28px;margin-top:-52px;position:relative;}
+  #introCard .introIcon{font-size:25px;margin-bottom:10px;opacity:0.9;}
+  #introCard.has-image .introIcon{display:none;}
+  #introCard h2{font-family:'Fraunces',serif;font-weight:600;font-size:29px;margin:0 0 12px;outline:none;line-height:1.2;letter-spacing:-.01em;}
+  #introCard.has-image h2{font-size:25px;text-shadow:0 2px 14px rgba(0,0,0,0.5);}
+  #introCard p{font-size:14px;line-height:1.7;color:var(--muted);margin:0;outline:none;}
+  #introCard .introStats{display:flex;gap:8px;margin-top:18px;}
+  #introCard .introStats .tile{flex:1;text-align:center;}
+  #introCard .skip{margin-top:22px;background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer;font-family:'JetBrains Mono',monospace;}
+
+  /* bottom control dock */
+  #dock{
+    position:absolute;left:50%;bottom:20px;transform:translateX(-50%);
+    width:min(720px,92vw);pointer-events:auto;
+    background:var(--panel);backdrop-filter:blur(16px);border:1px solid var(--line);
+    border-radius:16px;padding:14px 18px 12px;
+  }
+  #ridgeWrap{position:relative;height:46px;margin-bottom:8px;}
+  #ridgeSvg{width:100%;height:100%;display:block;}
+  #ridgeSvg .ridgeFill{fill:rgba(57,211,195,0.10);}
+  #ridgeSvg .ridgeLine{fill:none;stroke:rgba(245,243,237,0.35);stroke-width:1.4;}
+  #ridgeSvg .cardDot{cursor:pointer;stroke:rgba(10,17,32,0.5);stroke-width:1;}
+  #playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--trail);box-shadow:0 0 8px var(--trail);pointer-events:none;}
+  #scrub{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;margin:0;}
+
+  #controlsRow{display:flex;align-items:center;gap:14px;}
+  #playBtn{
+    width:38px;height:38px;border-radius:50%;border:none;background:var(--trail);color:#1a0d05;
+    font-size:14px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  }
+  #timeLabel{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);min-width:92px;}
+  #speedRow{display:flex;gap:4px;margin-left:auto;}
+  .spd{background:transparent;border:1px solid var(--line);color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;
+    padding:5px 9px;border-radius:7px;cursor:pointer;}
+  .spd.active{background:var(--trail-dim);border-color:var(--trail);color:var(--trail);}
+  .iconChoice.active{border-color:var(--trail)!important;background:rgba(255,122,69,0.10)!important;}
+  .provider-choice.active{border-color:var(--teal)!important;background:rgba(57,211,195,0.10)!important;}
+  .maptiler-style-choice.active{border-color:var(--teal)!important;background:rgba(57,211,195,0.10)!important;}
+  #restartBtn{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:5px 9px;font-size:11px;cursor:pointer;font-family:'JetBrains Mono',monospace;}
+
+  #errorToast{
+    position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+    background:#2a1210;border:1px solid #ff7a45;color:#ffd9c7;
+    padding:12px 18px;border-radius:10px;font-size:13px;max-width:min(560px,88vw);
+    z-index:100;box-shadow:0 20px 50px rgba(0,0,0,0.5);display:none;
+  }
+  #errorToast.show{display:block;}
+
+  .travelerMarker{
+    width:38px;height:38px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:19px;
+    background:radial-gradient(circle at 35% 30%, #eafffb, #1fb8a6 72%);
+    box-shadow:0 0 0 5px rgba(31,184,166,0.28), 0 6px 16px rgba(0,0,0,0.55);
+    border:2px solid rgba(255,255,255,0.92);
+    animation:travelerPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes travelerPulse{
+    0%,100%{box-shadow:0 0 0 5px rgba(31,184,166,0.28), 0 6px 16px rgba(0,0,0,0.55);}
+    50%{box-shadow:0 0 0 10px rgba(31,184,166,0.14), 0 6px 20px rgba(0,0,0,0.55);}
+  }
+
+  /* ---------- Edit / Director panel ---------- */
+  #editPanel{
+    position:absolute;top:0;right:0;bottom:0;width:var(--editPanelW);
+    background:var(--panel-solid);border-left:1px solid var(--line);
+    display:none;flex-direction:column;z-index:45;
+  }
+  body.editing #editPanel{display:flex;}
+  .epHead{padding:16px 18px 12px;border-bottom:1px solid var(--line);flex-shrink:0;}
+  .lockNotice{display:none;padding:9px 14px;background:rgba(255,122,69,0.14);border-bottom:1px solid var(--line);font-size:11.5px;color:#ffb08c;text-align:center;flex-shrink:0;}
+  #editPanel.locked .lockNotice{display:block;}
+  #editPanel.locked .epBody{opacity:0.35;pointer-events:none;filter:saturate(0.4);}
+  .epHead h3{margin:0;font-family:'Fraunces',serif;font-size:16px;}
+  .epBody{flex:1;overflow-y:auto;padding:14px 18px 24px;}
+  .epSection{margin-bottom:22px;}
+  .epSection h4{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 10px;font-weight:600;}
+  .epSection input[type=text], .epSection textarea, .epSection select{
+    width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:8px;
+    color:var(--text);font-size:12.5px;padding:8px 10px;outline:none;margin-bottom:8px;font-family:'Inter',sans-serif;resize:vertical;
+  }
+  .epSection input[type=text]:focus, .epSection textarea:focus{border-color:var(--trail);}
+  .colorSwatches{display:flex;gap:8px;margin-bottom:8px;}
+  .swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;}
+  .swatch.swatch-white{border-color:rgba(255,255,255,0.35);}
+  .swatch.active{border-color:var(--teal);}
+  .cardListItem{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer;border:1px solid transparent;}
+  .cardListItem:hover{background:rgba(255,255,255,0.03);}
+  .cardListItem.active{border-color:var(--trail);background:rgba(255,122,69,0.07);}
+  .cardListItem .ci-badge{width:20px;height:20px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;}
+  .cardListItem .ci-text{flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cardListItem .ci-del{color:var(--muted);font-size:13px;cursor:pointer;padding:2px 4px;}
+  .epBtn{
+    width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,0.02);
+    color:var(--text);font-size:12.5px;cursor:pointer;margin-bottom:6px;font-family:'Inter',sans-serif;
+  }
+  .epBtn:hover{border-color:var(--trail);}
+  .epBtn.primary{background:var(--trail);color:#1a0d05;font-weight:700;border-color:var(--trail);}
+  .typeTabs{display:flex;gap:6px;margin-bottom:10px;}
+  .typeTab{flex:1;padding:7px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:11.5px;cursor:pointer;}
+  .typeTab.active{border-color:var(--teal);color:var(--teal);background:rgba(57,211,195,0.08);}
+  .radioRow{display:flex;gap:12px;font-size:12px;color:var(--muted);margin-bottom:8px;}
+  .radioRow label{display:flex;align-items:center;gap:5px;cursor:pointer;}
+  .storageNote{font-size:10.5px;color:var(--muted);line-height:1.5;margin-top:4px;}
+  .camSliderRow{margin-bottom:10px;}
+  .camSliderRow label{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:4px;}
+  .camSliderRow input[type=range]{width:100%;accent-color:var(--teal);}
+  .reattachBox{background:rgba(255,122,69,0.08);border:1px solid var(--trail);border-radius:8px;padding:8px;font-size:11px;color:var(--text);margin-bottom:8px;}
+
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:rgba(245,243,237,0.15);border-radius:4px;}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="uploadScreen">
+  <div class="card">
+    <div class="eyebrow">Trailfilm by MJ</div>
+    <h1>여정을 3D로<br>다시 걷습니다</h1>
+    <p class="sub">GPX 경로와 사진을 올리면, 사진의 촬영 시각을 경로 위 정확한 지점에 매칭해서 카메라가 그 순간마다 멈춰서는 시네마틱 리플레이를 만들어드려요.</p>
+
+    <div class="field">
+      <label>여정 제목</label>
+      <input type="text" id="titleInput" placeholder="예: 설악산 공룡능선">
+    </div>
+    <div class="field">
+      <label>여정 소개 (인트로에 표시)</label>
+      <textarea id="descInput" rows="3" placeholder="예: 친구들과 함께한 무박 종주. 새벽 4시 출발..."></textarea>
+    </div>
+    <div class="field">
+      <label>대표 사진 (선택 · 전체 경로 스냅샷 등)</label>
+      <div class="drop" id="dropIntroImg">
+        <span class="name" id="introImgName">인트로 화면에 쓸 사진 선택</span>
+        <span class="hint" id="introImgHint">선택 안 함</span>
+      </div>
+      <input type="file" id="introImgInput" accept="image/*">
+    </div>
+    <div class="field">
+      <label>인트로 표시 시간</label>
+      <div class="rangeRow"><input type="range" id="introMsRange" min="2" max="15" value="5"><span class="rv" id="introMsVal">5초</span></div>
+    </div>
+
+    <div class="field">
+      <label>GPX 경로 파일</label>
+      <div class="drop" id="dropGpx">
+        <span class="name" id="gpxName">.gpx 파일 선택 또는 드래그</span>
+        <span class="hint">필수</span>
+      </div>
+      <input type="file" id="gpxInput" accept=".gpx">
+    </div>
+
+    <div class="field">
+      <label>사진 (여러 장 선택 가능)</label>
+      <div class="drop" id="dropPhotos">
+        <span class="name" id="photoName">사진 선택 (JPEG 권장, EXIF 시간 필요)</span>
+        <span class="hint" id="photoCount">0장</span>
+      </div>
+      <input type="file" id="photoInput" accept="image/*" multiple>
+    </div>
+
+    <div class="field">
+      <label>지도 공급자</label>
+      <div id="providerRow" style="display:flex;gap:8px;margin-bottom:8px;">
+        <button type="button" class="provider-choice active" data-provider="maplibre" style="flex:1;padding:11px 8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,0.02);cursor:pointer;color:var(--text);text-align:left;">
+          <div style="font-size:12.5px;font-weight:600;">MapLibre (기본)</div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:2px;">무료 · API 키 불필요 · 지금 스타일</div>
+        </button>
+        <button type="button" class="provider-choice" data-provider="maptiler" style="flex:1;padding:11px 8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,0.02);cursor:pointer;color:var(--text);text-align:left;">
+          <div style="font-size:12.5px;font-weight:600;">MapTiler</div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:2px;">API 키 필요 · 식생·지명 풍부</div>
+        </button>
+      </div>
+      <div id="maptilerKeyRow" style="display:none;">
+        <input type="text" id="maptilerKeyInput" placeholder="MapTiler API 키 붙여넣기">
+        <div class="storageNote" style="margin-bottom:10px;">키가 없다면 <a href="https://cloud.maptiler.com/account/keys/" target="_blank" style="color:var(--teal);">cloud.maptiler.com</a>에서 무료로 발급받을 수 있어요 (신용카드 불필요, 매달 무료 한도 제공). 이 파일은 서버 없이 로컬에서 돌아가기 때문에 키가 브라우저 개발자도구에 그대로 노출됩니다 — 개인 용도로는 괜찮지만, 이 HTML 파일 자체를 남에게 공유하지는 마세요.</div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="maptiler-style-choice active" data-style="outdoor-v2" style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,0.02);cursor:pointer;color:var(--text);text-align:left;">
+            <div style="font-size:11.5px;font-weight:600;">Outdoor</div>
+            <div style="font-size:9.5px;color:var(--muted);margin-top:1px;">일러스트풍 · 지역별 초록 밀도 다름</div>
+          </button>
+          <button type="button" class="maptiler-style-choice" data-style="hybrid" style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,0.02);cursor:pointer;color:var(--text);text-align:left;">
+            <div style="font-size:11.5px;font-weight:600;">Satellite Hybrid</div>
+            <div style="font-size:9.5px;color:var(--muted);margin-top:1px;">실사 위성사진 + 지명 · 항상 진짜 초록</div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>이동 수단 아이콘</label>
+      <div id="iconRow" style="display:flex;gap:8px;">
+        <button type="button" class="iconChoice active" data-icon="🚶" style="flex:1;padding:12px 8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,0.02);cursor:pointer;font-size:22px;color:var(--text);">🚶<div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Inter',sans-serif;">등산·도보</div></button>
+        <button type="button" class="iconChoice" data-icon="🚴" style="flex:1;padding:12px 8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,0.02);cursor:pointer;font-size:22px;color:var(--text);">🚴<div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Inter',sans-serif;">자전거</div></button>
+        <button type="button" class="iconChoice" data-icon="🚗" style="flex:1;padding:12px 8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,0.02);cursor:pointer;font-size:22px;color:var(--text);">🚗<div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Inter',sans-serif;">차량</div></button>
+      </div>
+    </div>
+
+    <div id="capLabel" style="font-size:12.5px;color:var(--muted);margin-bottom:16px;">사진 설명은 파일명에서 자동으로 채워집니다 (촬영시각_설명.jpg 형식이면 인식). 세부 문구·표시 시간은 시작 후 오른쪽 '디렉터 패널'에서 언제든 수정할 수 있어요.</div>
+
+    <button id="startBtn" disabled>여정 시작하기</button>
+    <div id="statusLine">GPX와 사진을 모두 올려주세요</div>
+    <div style="font-size:10px;color:rgba(148,160,184,0.5);margin-top:10px;font-family:'JetBrains Mono',monospace;">build 2026-07-13a</div>
+  </div>
+</div>
+
+<div id="hud">
+  <div id="topBar">
+    <div id="titleBlock">
+      <div class="eyebrow">Trailfilm by MJ</div>
+      <h2 id="tripTitle">나의 여정</h2>
+    </div>
+    <div id="statTiles">
+      <div class="tile"><div class="v" id="statDist">0.0km</div><div class="l">거리</div></div>
+      <div class="tile"><div class="v" id="statEle">0m</div><div class="l">최고고도</div></div>
+      <div class="tile"><div class="v" id="statPhotos">0</div><div class="l">카드</div></div>
+    </div>
+  </div>
+
+  <div id="introCard">
+    <div class="introTop"></div>
+    <div class="introImgWrap"><img id="introImg" src="" alt=""></div>
+    <div class="introBody">
+      <div class="introIcon">🏔️</div>
+      <h2 id="introTitle" contenteditable="true" spellcheck="false">나의 여정</h2>
+      <p id="introDesc" contenteditable="true" spellcheck="false"></p>
+      <div class="introStats">
+        <div class="tile"><div class="v" id="introStatDist">0.0km</div><div class="l">거리</div></div>
+        <div class="tile"><div class="v" id="introStatEle">0m</div><div class="l">최고고도</div></div>
+      </div>
+      <button class="skip" id="introSkip">건너뛰기 ▶</button>
+    </div>
+  </div>
+
+  <div id="storyCard">
+    <button class="close" id="storyClose">✕</button>
+    <div id="storyMediaWrap">
+      <img id="storyImg" src="" style="display:none;">
+      <video id="storyVideo" style="display:none;" playsinline></video>
+    </div>
+    <div class="cap" id="storyCap" contenteditable="true" spellcheck="false"></div>
+    <div class="meta" id="storyMeta"></div>
+    <div id="storyReadbar"><div id="storyReadbarFill"></div></div>
+    <div class="pin"></div>
+    <div class="stem"></div>
+  </div>
+
+  <div id="commentFloat">
+    <button class="close" id="commentClose">✕</button>
+    <div class="txt" id="commentText" contenteditable="true" spellcheck="false"></div>
+    <div class="bar"><div class="bar-fill" id="commentBarFill"></div></div>
+    <div class="stem"></div>
+    <div class="dot" id="commentDot"></div>
+  </div>
+
+  <div id="dock">
+    <div id="ridgeWrap">
+      <svg id="ridgeSvg" viewBox="0 0 700 46" preserveAspectRatio="none"></svg>
+      <div id="playhead"></div>
+      <input type="range" id="scrub" min="0" max="1000" value="0">
+    </div>
+    <div id="controlsRow">
+      <button id="playBtn">▶</button>
+      <span id="timeLabel">00:00 / 00:00</span>
+      <button id="restartBtn">처음부터</button>
+      <button id="introToggleBtn" class="spd active" title="재생 시작마다 제목/설명 카드를 보여줄지 여부 (OBS 녹화 시 끄기 가능)">🎬 인트로</button>
+      <div id="speedRow">
+        <button class="spd" data-s="0.5">0.5×</button>
+        <button class="spd active" data-s="1">1×</button>
+        <button class="spd" data-s="2">2×</button>
+        <button class="spd" data-s="4">4×</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<button id="modeToggle">✎ 편집창 열기</button>
+
+<div id="editPanel">
+  <div class="epHead"><h3>디렉터 패널</h3></div>
+  <div class="lockNotice">▶ 재생 중에는 편집이 잠깁니다 — 일시정지(❚❚)한 뒤 수정하세요</div>
+  <div class="epBody">
+
+    <div class="epSection">
+      <h4>여정 정보</h4>
+      <input type="text" id="epTitle" placeholder="여정 제목">
+      <textarea id="epDesc" rows="2" placeholder="여정 소개"></textarea>
+      <div class="rangeRow"><input type="range" id="epIntroMs" min="2" max="15" value="5"><span class="rv" id="epIntroMsVal">5초</span></div>
+      <label style="display:block;font-size:11px;color:var(--muted);margin:10px 0 4px;">대표 사진</label>
+      <input type="file" id="epIntroImgInput" accept="image/*" style="width:100%;font-size:11px;color:var(--muted);margin-bottom:4px;">
+      <button class="epBtn" id="epIntroImgClear" style="margin-bottom:8px;">사진 제거</button>
+      <button class="epBtn" id="clearSavedBtn" style="color:#ff9a8a;border-color:rgba(255,122,69,0.35);">🗑 저장된 편집 초기화</button>
+      <div class="storageNote">같은 GPX+사진을 다시 열면 이전에 고친 코멘트·타이밍·시점 보정과 직접 추가한 카드가 자동 복원됩니다. 새로 시작하고 싶으면 여기를 누르세요.</div>
+    </div>
+
+    <div class="epSection">
+      <h4>카드 추가 (현재 재생 위치에)</h4>
+      <div class="typeTabs">
+        <button class="typeTab active" data-type="comment">💬 코멘트</button>
+        <button class="typeTab" data-type="photo">🖼 사진</button>
+        <button class="typeTab" data-type="video">🎬 영상</button>
+      </div>
+      <textarea id="addText" rows="2" placeholder="예: 능선 힘드네~ / 당골고개"></textarea>
+      <div class="colorSwatches" id="addColorSwatches">
+        <div class="swatch swatch-white active" data-color="#ffffff" style="background:#ffffff;"></div>
+        <div class="swatch" data-color="#0d1420" style="background:#0d1420;"></div>
+        <div class="swatch" data-color="#c23b3b" style="background:#c23b3b;"></div>
+        <div class="swatch" data-color="#2f9e58" style="background:#2f9e58;"></div>
+        <div class="swatch" data-color="#2f6fd6" style="background:#2f6fd6;"></div>
+      </div>
+      <div id="addPhotoRow" style="display:none;">
+        <input type="file" id="addPhotoFile" accept="image/*" style="width:100%;font-size:11px;color:var(--muted);margin-bottom:8px;">
+      </div>
+      <div id="addVideoRow" style="display:none;">
+        <div class="radioRow">
+          <label><input type="radio" name="vidsrc" value="file" checked> 로컬 파일</label>
+          <label><input type="radio" name="vidsrc" value="url"> URL</label>
+        </div>
+        <input type="file" id="addVideoFile" accept="video/*" style="width:100%;font-size:11px;color:var(--muted);margin-bottom:8px;">
+        <input type="text" id="addVideoUrl" placeholder="https://..." style="display:none;">
+        <div class="storageNote">카드 길이는 영상 길이 + 앞뒤 0.3초로 자동 계산됩니다.</div>
+      </div>
+      <div id="addDurationRow">
+        <label style="font-size:11.5px;color:var(--muted);">표시 시간</label>
+        <div class="rangeRow"><input type="range" id="addDuration" min="0.5" max="10" step="0.5" value="2.5"><span class="rv" id="addDurationVal">2.5초</span></div>
+      </div>
+      <button class="epBtn primary" id="addCardBtn">＋ 이 지점에 카드 추가</button>
+    </div>
+
+    <div class="epSection" id="cardEditSection" style="display:none;">
+      <h4>현재 카드 편집</h4>
+      <div class="rangeRow"><input type="range" id="editDuration" min="0.5" max="10" step="0.5" value="2.5"><span class="rv" id="editDurationVal">2.5초</span></div>
+      <div class="colorSwatches" id="editColorSwatches">
+        <div class="swatch swatch-white" data-color="#ffffff" style="background:#ffffff;"></div>
+        <div class="swatch" data-color="#0d1420" style="background:#0d1420;"></div>
+        <div class="swatch" data-color="#c23b3b" style="background:#c23b3b;"></div>
+        <div class="swatch" data-color="#2f9e58" style="background:#2f9e58;"></div>
+        <div class="swatch" data-color="#2f6fd6" style="background:#2f6fd6;"></div>
+      </div>
+      <h4 style="margin-top:16px;">시점 보정</h4>
+      <div class="camSliderRow"><label><span>좌우 각도</span><span id="camBearingVal">0°</span></label><input type="range" id="camBearing" min="-60" max="60" value="0"></div>
+      <div class="camSliderRow"><label><span>거리(줌)</span><span id="camZoomVal">0.0</span></label><input type="range" id="camZoom" min="-20" max="20" value="0"></div>
+      <div class="camSliderRow"><label><span>피치</span><span id="camPitchVal">0°</span></label><input type="range" id="camPitch" min="-15" max="15" value="0"></div>
+      <button class="epBtn" id="camResetBtn">시점 보정 초기화</button>
+    </div>
+
+    <div class="epSection">
+      <h4>카드 목록 (<span id="cardCount">0</span>)</h4>
+      <div id="cardListWrap"></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="errorToast"></div>
+
+<script>
+console.log('%cTrailfilm build: 2026-07-13b (안정성/표기 패치)', 'color:#ff7a45;font-weight:bold;');
+let errorToastTimer = null;
+let tickErrorNotified = false;
+function showFatalError(msg){
+  console.error(msg);
+  const toast = document.getElementById('errorToast');
+  toast.textContent = '⚠ ' + msg + '  (자세한 내용은 F12 콘솔 참고 · 클릭하면 닫힘)';
+  toast.classList.add('show');
+  clearTimeout(errorToastTimer);
+  errorToastTimer = setTimeout(()=> toast.classList.remove('show'), 8000);
+}
+document.getElementById('errorToast').addEventListener('click', ()=>{
+  document.getElementById('errorToast').classList.remove('show');
+  clearTimeout(errorToastTimer);
+});
+window.addEventListener('error', e=> showFatalError(e.message || '알 수 없는 오류가 발생했어요.'));
+window.addEventListener('unhandledrejection', e=> showFatalError((e.reason && e.reason.message) || '처리되지 않은 오류가 발생했어요.'));
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let gpxFile = null, photoFiles = [];
+let selectedIcon = '🚶';
+let track = [];
+let cards = [];          // unified: photo / comment / video
+let cardIdCounter = 1;
+let camPath = [];
+let totalDist = 0, maxEle = 0;
+let map = null;
+let playing = false, progress = 0, speed = 1;
+let PLAYBACK_MS = 55000;
+let lastFrameT = null;
+let pausedForPhoto = null; // index into cards[], or 'intro'
+let photoResumeTimer = null;
+let travelerMarker = null;
+let dispBearing = null;
+let activeFrozenCam = null;
+let selectedColor = '#ffffff';
+let addType = 'comment';
+let journeyTitle = '', journeyDesc = '', introMs = 5000;
+let introImageFile = null, introImageUrl = '';
+let introEnabled = true;
+let mapProvider = 'maplibre'; // 'maplibre' | 'maptiler'
+let maptilerKey = '';
+let maptilerStyleId = 'outdoor-v2';
+
+document.querySelectorAll('.iconChoice').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.iconChoice').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedIcon = btn.getAttribute('data-icon');
+  });
+});
+document.getElementById('introMsRange').addEventListener('input', e=>{
+  document.getElementById('introMsVal').textContent = e.target.value+'초';
+});
+
+document.querySelectorAll('.provider-choice').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.provider-choice').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    mapProvider = btn.getAttribute('data-provider');
+    document.getElementById('maptilerKeyRow').style.display = (mapProvider==='maptiler') ? 'block' : 'none';
+  });
+});
+document.getElementById('maptilerKeyInput').addEventListener('input', e=>{
+  maptilerKey = e.target.value.trim();
+});
+document.querySelectorAll('.maptiler-style-choice').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.maptiler-style-choice').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    maptilerStyleId = btn.getAttribute('data-style');
+  });
+});
+
+/* ============================================================
+   FILE INPUT WIRING
+   ============================================================ */
+const dropGpx = document.getElementById('dropGpx');
+const gpxInput = document.getElementById('gpxInput');
+const dropPhotos = document.getElementById('dropPhotos');
+const photoInput = document.getElementById('photoInput');
+const startBtn = document.getElementById('startBtn');
+const statusLine = document.getElementById('statusLine');
+
+dropGpx.addEventListener('click', ()=>gpxInput.click());
+dropPhotos.addEventListener('click', ()=>photoInput.click());
+document.getElementById('dropIntroImg').addEventListener('click', ()=>document.getElementById('introImgInput').click());
+document.getElementById('introImgInput').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  introImageFile = f;
+  introImageUrl = URL.createObjectURL(f);
+  document.getElementById('introImgName').textContent = f.name;
+  document.getElementById('introImgHint').textContent = '선택됨';
+  document.getElementById('dropIntroImg').classList.add('filled');
+});
+
+gpxInput.addEventListener('change', e=>{
+  if(e.target.files[0]){
+    gpxFile = e.target.files[0];
+    document.getElementById('gpxName').textContent = gpxFile.name;
+    dropGpx.classList.add('filled');
+    checkReady();
+  }
+});
+photoInput.addEventListener('change', e=>{
+  photoFiles = Array.from(e.target.files);
+  document.getElementById('photoName').textContent = photoFiles.length ? '사진 ' + photoFiles.length + '장 선택됨' : '사진 선택';
+  document.getElementById('photoCount').textContent = photoFiles.length + '장';
+  if(photoFiles.length) dropPhotos.classList.add('filled');
+  checkReady();
+
+  const hasHeic = photoFiles.some(f=>/\.(heic|heif)$/i.test(f.name) || /heic|heif/i.test(f.type));
+  if(hasHeic){
+    statusLine.textContent = '⚠ HEIC 형식은 브라우저에서 EXIF/미리보기가 제한될 수 있어요. JPEG로 내보내면 더 정확합니다.';
+  }
+});
+function checkReady(){
+  const ready = gpxFile && photoFiles.length>0;
+  startBtn.disabled = !ready;
+  statusLine.textContent = ready ? '준비 완료 — 시작할 수 있어요' : 'GPX와 사진을 모두 올려주세요';
+}
+startBtn.addEventListener('click', buildJourney);
+
+/* ============================================================
+   GPX PARSING
+   ============================================================ */
+function parseGPX(xmlText){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  const pts = Array.from(doc.getElementsByTagName('trkpt'));
+  const out = [];
+  for(const pt of pts){
+    const lat = parseFloat(pt.getAttribute('lat'));
+    const lon = parseFloat(pt.getAttribute('lon'));
+    if(isNaN(lat) || isNaN(lon)) continue;
+    const eleEl = pt.getElementsByTagName('ele')[0];
+    const timeEl = pt.getElementsByTagName('time')[0];
+    out.push({
+      lat, lon,
+      ele: eleEl ? parseFloat(eleEl.textContent) : 0,
+      time: timeEl ? new Date(timeEl.textContent) : null
+    });
+  }
+  return out;
+}
+function haversine(a,b){
+  const R=6371000, toRad=d=>d*Math.PI/180;
+  const dLat = toRad(b.lat-a.lat), dLon = toRad(b.lon-a.lon);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+function bearing(a,b){
+  const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
+  const y = Math.sin(toRad(b.lon-a.lon))*Math.cos(toRad(b.lat));
+  const x = Math.cos(toRad(a.lat))*Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.cos(toRad(b.lon-a.lon));
+  return (toDeg(Math.atan2(y,x))+360)%360;
+}
+
+/* ============================================================
+   EXIF PARSING
+   ============================================================ */
+function dmsToDecimal(dms, ref){
+  if(!dms) return null;
+  const val = dms[0] + dms[1]/60 + dms[2]/3600;
+  return (ref === 'S' || ref === 'W') ? -val : val;
+}
+function parseExifDate(str){
+  if(!str) return null;
+  const iso = str.replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3');
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+function readExif(file){
+  return new Promise(resolve=>{
+    let done = false;
+    const finish = (result)=>{ if(!done){ done=true; resolve(result); } };
+    const guard = setTimeout(()=> finish({time:null, lat:null, lon:null, timedOut:true}), 4000);
+    try{
+      EXIF.getData(file, function(){
+        clearTimeout(guard);
+        try{
+          const time = parseExifDate(EXIF.getTag(this,'DateTimeOriginal') || EXIF.getTag(this,'DateTime'));
+          const lat = dmsToDecimal(EXIF.getTag(this,'GPSLatitude'), EXIF.getTag(this,'GPSLatitudeRef'));
+          const lon = dmsToDecimal(EXIF.getTag(this,'GPSLongitude'), EXIF.getTag(this,'GPSLongitudeRef'));
+          finish({time, lat, lon});
+        }catch(err){ finish({time:null, lat:null, lon:null}); }
+      });
+    }catch(err){
+      clearTimeout(guard);
+      finish({time:null, lat:null, lon:null});
+    }
+  });
+}
+
+/* filename convention: YYYYMMDD_HHMMSS_<free text>.ext -> use <free text> (underscores -> spaces)
+   as the base comment; distance/elevation are always appended by the app, never read from the name. */
+function filenameBaseText(filename){
+  const m = filename.match(/\d{8}_\d{6}_(.+)\.[a-zA-Z0-9]+$/);
+  if(!m) return null;
+  return m[1].replace(/_/g,' ').replace(/\s+/g,' ').trim() || null;
+}
+function distEleText(distKm, ele){
+  let t = '- '+distKm+' Km';
+  if(ele) t += ' / H '+Math.round(ele)+'m';
+  return t;
+}
+function autoCaptionFor(ph, distKm){
+  const fromName = filenameBaseText(ph.file.name);
+  const parts = [];
+  if(fromName){
+    parts.push(fromName);
+  } else if(ph.time){
+    parts.push(ph.time.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+  }
+  parts.push(distEleText(distKm, ph.ele));
+  return parts.join(' · ');
+}
+
+/* ============================================================
+   PERSISTENCE (localStorage) — works when this file is opened
+   directly / served locally, which is how it's meant to run.
+   ============================================================ */
+function journeySignature(){
+  return (gpxFile?gpxFile.name+':'+gpxFile.size:'x') + ':' + track.length;
+}
+function saveState(){
+  try{
+    const sig = journeySignature();
+    const data = {
+      title: journeyTitle, desc: journeyDesc, introMs: introMs, introEnabled: introEnabled,
+      cards: cards.map(c=>{
+        const rec = {
+          type:c.type, frac:c.frac, lat:c.lat, lon:c.lon, ele:c.ele, text:c.text, color:c.color,
+          displayMs:c.displayMs, camOverride:c.camOverride||null, estimated:c.estimated||false,
+          sourceFileName: c.sourceFileName||null, textEdited: !!c.textEdited
+        };
+        if(c.type==='photo' && !c.sourceFileName && c.url && c.url.length<900000 && c.url.indexOf('data:')===0) rec.mediaDataUrl = c.url;
+        if(c.type==='video'){ if(c.isRemote) rec.videoUrl = c.url; }
+        return rec;
+      })
+    };
+    localStorage.setItem('trailfilm:'+sig, JSON.stringify(data));
+  }catch(e){ console.warn('저장 실패 (용량 초과 등):', e); }
+}
+function loadState(){
+  try{
+    const raw = localStorage.getItem('trailfilm:'+journeySignature());
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+let saveDebounce = null;
+function scheduleSave(){ clearTimeout(saveDebounce); saveDebounce = setTimeout(saveState, 400); }
+
+function mergeSavedState(){
+  const saved = loadState();
+  if(!saved) return;
+  if(saved.title) { journeyTitle = saved.title; }
+  if(saved.desc) { journeyDesc = saved.desc; }
+  if(saved.introMs) introMs = saved.introMs;
+  if(typeof saved.introEnabled === 'boolean') introEnabled = saved.introEnabled;
+  const extra = [];
+  (saved.cards||[]).forEach(sc=>{
+    if(sc.type==='photo' && sc.sourceFileName){
+      const match = cards.find(c=>c.type==='photo' && c.sourceFileName===sc.sourceFileName);
+      if(match){
+        // only restore text if the person actually edited it — otherwise keep the freshly
+        // computed auto-caption so filename-parsing fixes / logic improvements always apply
+        if(sc.textEdited){ match.text = sc.text; match.textEdited = true; }
+        match.color = sc.color; match.displayMs = sc.displayMs; match.camOverride = sc.camOverride;
+      }
+      return;
+    }
+    extra.push({
+      id: cardIdCounter++, type: sc.type, frac: sc.frac, lat: sc.lat, lon: sc.lon, ele: sc.ele,
+      text: sc.text, color: sc.color||'#0d1420', displayMs: sc.displayMs||2500, camOverride: sc.camOverride||null,
+      url: sc.mediaDataUrl || sc.videoUrl || '', isRemote: !!sc.videoUrl,
+      shown:false, estimated: !!sc.estimated, textEdited: true,
+      needsReattach: sc.type!=='comment' && !sc.mediaDataUrl && !sc.videoUrl
+    });
+  });
+  cards = cards.concat(extra);
+  cards.sort((a,b)=>a.frac-b.frac);
+}
+
+function clearSavedState(){
+  if(!confirm('이 여정(같은 GPX+사진 조합)에 저장된 모든 코멘트/타이밍/시점 보정과, 직접 추가한 코멘트·사진·영상 카드를 전부 지우고 처음 상태로 되돌립니다.\n계속할까요?')) return;
+  try{ localStorage.removeItem('trailfilm:'+journeySignature()); }catch(e){}
+  location.reload();
+}
+
+/* ============================================================
+   BUILD JOURNEY (main pipeline)
+   ============================================================ */
+async function buildJourney(){
+  startBtn.disabled = true;
+  try{
+    await runJourneyPipeline();
+  }catch(err){
+    console.error('Trailfilm build error:', err);
+    statusLine.textContent = '⚠ 오류: ' + (err && err.message ? err.message : String(err)) + ' (콘솔(F12)에서 자세한 내용 확인 가능)';
+    startBtn.disabled = false;
+    document.getElementById('uploadScreen').style.display = 'flex';
+    document.getElementById('hud').classList.remove('active');
+    showFatalError(err && err.message ? err.message : String(err));
+  }
+}
+
+async function runJourneyPipeline(){
+  if(typeof maplibregl === 'undefined') throw new Error('지도 라이브러리(maplibre-gl)를 불러오지 못했어요. 인터넷 연결이나 광고 차단 확장 프로그램을 확인한 뒤 새로고침 해주세요.');
+  if(typeof EXIF === 'undefined') throw new Error('EXIF 라이브러리를 불러오지 못했어요. 인터넷 연결을 확인한 뒤 새로고침 해주세요.');
+  if(mapProvider==='maptiler' && !maptilerKey) throw new Error('MapTiler를 선택하셨는데 API 키가 비어있어요. 키를 입력하거나 MapLibre(기본)로 바꿔주세요.');
+
+  journeyTitle = document.getElementById('titleInput').value.trim();
+  journeyDesc = document.getElementById('descInput').value.trim();
+  introMs = parseInt(document.getElementById('introMsRange').value,10)*1000;
+
+  statusLine.textContent = 'GPX 분석 중...';
+  const gpxText = await gpxFile.text();
+  track = parseGPX(gpxText);
+  if(track.length < 2){
+    statusLine.textContent = 'GPX에서 경로점을 찾지 못했어요. 파일을 확인해주세요.';
+    startBtn.disabled = false;
+    return;
+  }
+
+  let cum = 0;
+  track[0].cumDist = 0;
+  for(let i=1;i<track.length;i++){
+    cum += haversine(track[i-1], track[i]);
+    track[i].cumDist = cum;
+  }
+  totalDist = cum;
+  track.forEach(p=>p.frac = totalDist>0 ? p.cumDist/totalDist : 0);
+  maxEle = Math.max(...track.map(p=>p.ele));
+  const hasTime = track.some(p=>p.time);
+
+  statusLine.textContent = '사진 EXIF 읽는 중... (0/'+photoFiles.length+')';
+  let doneCount = 0;
+  const exifResults = await Promise.all(photoFiles.map(f => readExif(f).then(r=>{
+    doneCount++;
+    statusLine.textContent = '사진 EXIF 읽는 중... ('+doneCount+'/'+photoFiles.length+')';
+    return r;
+  })));
+
+  let photos = photoFiles.map((file,i)=>{
+    const ex = exifResults[i];
+    return { file, url: URL.createObjectURL(file), time: ex.time, gpsLat: ex.lat, gpsLon: ex.lon, shown:false };
+  });
+
+  const timedTrack = track.filter(p=>p.time);
+  if(hasTime && timedTrack.length>1){
+    for(const ph of photos){
+      if(ph.gpsLat!=null && ph.gpsLon!=null){
+        let best=null,bd=Infinity;
+        for(const tp of track){ const d=haversine(tp,{lat:ph.gpsLat,lon:ph.gpsLon}); if(d<bd){bd=d;best=tp;} }
+        ph.lat=ph.gpsLat; ph.lon=ph.gpsLon; ph.ele=best?best.ele:0; ph.frac=best?best.frac:0;
+      } else if(ph.time && timedTrack.length>1){
+        let lo=null, hi=null;
+        for(let i=0;i<timedTrack.length-1;i++){
+          if(timedTrack[i].time<=ph.time && timedTrack[i+1].time>=ph.time){ lo=timedTrack[i]; hi=timedTrack[i+1]; break; }
+        }
+        if(!lo && !hi){
+          const first=timedTrack[0], last=timedTrack[timedTrack.length-1];
+          const target = ph.time < first.time ? first : last;
+          ph.lat=target.lat; ph.lon=target.lon; ph.ele=target.ele; ph.frac=target.frac;
+        } else {
+          const span = hi.time - lo.time || 1;
+          const t = Math.max(0,Math.min(1,(ph.time - lo.time)/span));
+          ph.lat = lo.lat + (hi.lat-lo.lat)*t;
+          ph.lon = lo.lon + (hi.lon-lo.lon)*t;
+          ph.ele = lo.ele + (hi.ele-lo.ele)*t;
+          ph.frac = lo.frac + (hi.frac-lo.frac)*t;
+        }
+      } else {
+        const idx = photos.indexOf(ph);
+        const t = photos.length>1 ? idx/(photos.length-1) : 0.5;
+        const tp = track[Math.round(t*(track.length-1))];
+        ph.lat=tp.lat; ph.lon=tp.lon; ph.ele=tp.ele; ph.frac=tp.frac; ph.estimated=true;
+      }
+    }
+  } else {
+    photos.forEach((ph,i)=>{
+      const t = photos.length>1 ? i/(photos.length-1) : 0.5;
+      const idx = Math.round(t*(track.length-1));
+      const tp = track[idx];
+      ph.lat=tp.lat; ph.lon=tp.lon; ph.ele=tp.ele; ph.frac=tp.frac; ph.estimated=true;
+    });
+  }
+
+  photos.sort((a,b)=>a.frac-b.frac);
+
+  cards = photos.map(ph=>{
+    const distKm = (ph.frac*totalDist/1000).toFixed(1);
+    const autoCap = autoCaptionFor(ph, distKm);
+    return {
+      id: cardIdCounter++, type:'photo', frac: ph.frac, lat: ph.lat, lon: ph.lon, ele: ph.ele,
+      text: autoCap, color:'#0d1420', displayMs: 2500, textEdited:false,
+      camOverride: null, url: ph.url, estimated: !!ph.estimated, shown:false,
+      sourceFileName: ph.file.name, distKm
+    };
+  });
+
+  mergeSavedState();
+
+  computeRelief();
+  buildCamPath();
+  initMap();
+
+  document.getElementById('uploadScreen').style.display='none';
+  document.getElementById('hud').classList.add('active');
+  document.getElementById('statDist').textContent = (totalDist/1000).toFixed(1)+'km';
+  document.getElementById('statEle').textContent = Math.round(maxEle)+'m';
+  document.getElementById('statPhotos').textContent = cards.length;
+  document.getElementById('tripTitle').textContent = journeyTitle || trackTitle();
+
+  document.getElementById('epTitle').value = journeyTitle;
+  document.getElementById('epDesc').value = journeyDesc;
+  document.getElementById('epIntroMs').value = Math.round(introMs/1000);
+  document.getElementById('epIntroMsVal').textContent = Math.round(introMs/1000)+'초';
+
+  PLAYBACK_MS = Math.max(35000, Math.min(120000, track.length * 40));
+}
+
+function trackTitle(){
+  const d = track[0].time ? track[0].time : null;
+  if(!d) return '나의 여정';
+  return d.toLocaleDateString('ko-KR', {month:'long', day:'numeric'}) + '의 여정';
+}
+
+/* relief[i] in 0..1: how deep point i sits below the highest nearby ridge within a window. */
+function computeRelief(){
+  const halfW = Math.max(120, totalDist*0.02);
+  const eleVals = track.map(p=>p.ele);
+  const eRange = (Math.max(...eleVals) - Math.min(...eleVals)) || 1;
+  let lo=0, hi=0;
+  const dq = [];
+  for(let i=0;i<track.length;i++){
+    while(hi<track.length && track[hi].cumDist <= track[i].cumDist + halfW){
+      while(dq.length && track[dq[dq.length-1]].ele <= track[hi].ele) dq.pop();
+      dq.push(hi); hi++;
+    }
+    while(track[i].cumDist - track[lo].cumDist > halfW){
+      if(dq[0]===lo) dq.shift();
+      lo++;
+    }
+    const windowMax = track[dq[0]].ele;
+    track[i].relief = Math.max(0, Math.min(1, (windowMax - track[i].ele)/eRange));
+  }
+}
+
+function buildCamPath(){
+  const N = 480;
+  camPath = [];
+  for(let i=0;i<=N;i++){
+    const frac = i/N;
+    let lo=track[0], hi=track[track.length-1];
+    for(let j=0;j<track.length-1;j++){
+      if(track[j].frac<=frac && track[j+1].frac>=frac){ lo=track[j]; hi=track[j+1]; break; }
+    }
+    const span = (hi.frac-lo.frac)||1;
+    const t = Math.max(0,Math.min(1,(frac-lo.frac)/span));
+    camPath.push({
+      lat: lo.lat+(hi.lat-lo.lat)*t,
+      lon: lo.lon+(hi.lon-lo.lon)*t,
+      ele: lo.ele+(hi.ele-lo.ele)*t,
+      relief: (lo.relief||0)+((hi.relief||0)-(lo.relief||0))*t,
+      frac
+    });
+  }
+  for(let i=0;i<camPath.length;i++){
+    const a = camPath[i], b = camPath[Math.min(i+1,camPath.length-1)];
+    a.bearing = bearing(a,b);
+  }
+}
+
+/* ============================================================
+   MAP INIT
+   ============================================================ */
+function initMap(){
+  const useMapTiler = (mapProvider==='maptiler' && maptilerKey);
+
+  map = new maplibregl.Map({
+    container:'map',
+    center:[track[0].lon, track[0].lat],
+    zoom:13,
+    pitch:58,
+    bearing:0,
+    style: useMapTiler
+      ? `https://api.maptiler.com/maps/${maptilerStyleId}/style.json?key=${encodeURIComponent(maptilerKey)}`
+      : {
+          version:8,
+          sources:{
+            'osm':{ type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256, attribution:'© OpenStreetMap' },
+            'terrain-dem':{ type:'raster-dem', tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], tileSize:256, encoding:'terrarium', maxzoom:15 }
+          },
+          layers:[
+            { id:'osm-layer', type:'raster', source:'osm',
+              paint:{ 'raster-brightness-min':0.05,'raster-brightness-max':0.62,'raster-contrast':0.15,'raster-saturation':-0.35,'raster-hue-rotate':190 } },
+            { id:'hillshade', type:'hillshade', source:'terrain-dem',
+              paint:{ 'hillshade-shadow-color':'#050810','hillshade-highlight-color':'#3a4a63','hillshade-exaggeration':0.6 } }
+          ]
+        },
+    antialias:true
+  });
+
+  map.on('error', (e)=>{
+    const err = e && e.error ? e.error : e;
+    console.error('MapLibre error:', err);
+    if(useMapTiler && err && /40[13]|key/i.test(String(err.message||err))){
+      showFatalError('MapTiler API 키가 거부됐어요 (401/403). 키가 맞는지, 무료 티어 한도를 넘지 않았는지 https://cloud.maptiler.com/account/keys/ 에서 확인해주세요.');
+    }
+  });
+
+  map.on('load', ()=>{
+   try{
+    if(useMapTiler){
+      map.addSource('terrain-dem', { type:'raster-dem', url:`https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${encodeURIComponent(maptilerKey)}` });
+    }
+    map.setTerrain({source:'terrain-dem', exaggeration:1.35});
+    try{
+      map.setSky(useMapTiler ? {
+        'sky-color':'#7ec8e3','sky-horizon-blend':0.4,
+        'horizon-color':'#cfe8d8','horizon-fog-blend':0.25,
+        'fog-color':'#dce9df','fog-ground-blend':0.15
+      } : {
+        'sky-color':'#0a1120','sky-horizon-blend':0.5,
+        'horizon-color':'#1c2f4a','horizon-fog-blend':0.6,
+        'fog-color':'#0a1120','fog-ground-blend':0.7
+      });
+    }catch(e){}
+
+    const fullLine = { type:'Feature', geometry:{ type:'LineString', coordinates: track.map(p=>[p.lon,p.lat]) } };
+    map.addSource('full-route',{type:'geojson', data: fullLine, lineMetrics:true});
+    map.addLayer({ id:'full-route-line', type:'line', source:'full-route',
+      layout:{'line-join':'round','line-cap':'round'},
+      paint:{'line-color':'#39d3c3','line-width':4.5,'line-opacity':0.4}
+    });
+
+    // traveled path: lineMetrics + line-gradient gives a "comet" look — always brightest
+    // right at the current position, so return/overlap legs read as clearly "moving forward" again.
+    map.addSource('trail-route',{type:'geojson', lineMetrics:true, data:{type:'Feature',geometry:{type:'LineString',coordinates:[[track[0].lon,track[0].lat],[track[0].lon,track[0].lat]]}}});
+    map.addLayer({ id:'trail-route-glow', type:'line', source:'trail-route',
+      layout:{'line-join':'round','line-cap':'round'},
+      paint:{'line-color':'#ff9a63','line-width':20,'line-opacity':0.22,'line-blur':8}
+    });
+    map.addLayer({ id:'trail-route-line', type:'line', source:'trail-route',
+      layout:{'line-join':'round','line-cap':'round'},
+      paint:{
+        'line-width':8,'line-opacity':1,
+        'line-gradient':['interpolate',['linear'],['line-progress'],
+          0,'rgba(120,50,25,0.35)', 0.55,'rgba(255,110,60,0.7)', 0.88,'#ff8a52', 1,'#fff0e2']
+      }
+    });
+
+    map.addSource('card-points',{type:'geojson', data:{type:'FeatureCollection', features: cards.map((c,i)=>({
+      type:'Feature', properties:{idx:i,active:0}, geometry:{type:'Point',coordinates:[c.lon,c.lat]}
+    }))}});
+    map.addLayer({ id:'card-points-layer', type:'circle', source:'card-points',
+      paint:{
+        'circle-radius': ['case',['==',['get','active'],1], 11, 6],
+        'circle-color':'#ffe0cf',
+        'circle-stroke-color':'#ff7a45',
+        'circle-stroke-width': ['case',['==',['get','active'],1], 5, 2.5]
+      }
+    });
+
+    initTravelerMarker();
+    buildRidge();
+    wireControls();
+    wireEditPanel();
+    renderCardList();
+    requestAnimationFrame(tick);
+    showIntroCard();
+   }catch(err){
+    console.error('MapLibre load-callback error:', err);
+    showFatalError('지도 초기화 중 오류: ' + (err && err.message ? err.message : String(err)));
+   }
+  });
+}
+
+/* ============================================================
+   PLAYBACK LOOP
+   ============================================================ */
+function initTravelerMarker(){
+  const el = document.createElement('div');
+  el.className = 'travelerMarker';
+  el.textContent = selectedIcon;
+  travelerMarker = new maplibregl.Marker({element:el, rotationAlignment:'map', pitchAlignment:'map'})
+    .setLngLat([track[0].lon, track[0].lat])
+    .addTo(map);
+}
+
+function sampleCam(frac){
+  if(!camPath || camPath.length===0){
+    // should never happen, but never crash the render loop over it
+    const t0 = (track && track[0]) ? track[0] : {lat:0,lon:0,ele:0};
+    return {lat:t0.lat, lon:t0.lon, ele:t0.ele, relief:0, bearing:0};
+  }
+  if(!isFinite(frac)) frac = 0;
+  frac = Math.max(0, Math.min(1, frac));
+  const N = camPath.length-1;
+  const pos = frac*N;
+  const i = Math.max(0, Math.min(Math.max(N-1,0), Math.floor(pos)));
+  const t = pos-i;
+  const a = camPath[i] || camPath[0], b = camPath[i+1] || a;
+  let db = b.bearing - a.bearing;
+  if(db>180) db-=360; if(db<-180) db+=360;
+  return {
+    lat: a.lat+(b.lat-a.lat)*t,
+    lon: a.lon+(b.lon-a.lon)*t,
+    ele: a.ele+(b.ele-a.ele)*t,
+    relief: a.relief+(b.relief-a.relief)*t,
+    bearing: a.bearing + db*t
+  };
+}
+function lerpAngle(from,to,r){
+  let d = to-from;
+  while(d>180) d-=360;
+  while(d<-180) d+=360;
+  return from + d*r;
+}
+
+/* Builds the "traveled so far" line using the SAME interpolation as sampleCam(), so its tip
+   always lands exactly on the traveler icon — no lag, no lead, regardless of GPX point density. */
+function coordsUpToFrac(frac){
+  const coords = [];
+  for(let i=0;i<track.length;i++){
+    if(track[i].frac >= frac) break;
+    coords.push([track[i].lon, track[i].lat]);
+  }
+  const here = sampleCam(frac);
+  coords.push([here.lon, here.lat]);
+  if(coords.length<2) coords.unshift([track[0].lon, track[0].lat]);
+  return coords;
+}
+
+function computeCardCamera(card){
+  const base = sampleCam(card.frac);
+  const ov = card.camOverride || {bearingOffset:0, zoomOffset:0, pitchOffset:0};
+  const lagMeters = Math.max(6, 34 - base.relief*26);
+  const lagFrac = Math.min(0.35, lagMeters/Math.max(totalDist,1));
+  const camPoint = sampleCam(Math.max(0, card.frac - lagFrac));
+  const bearingDeg = base.bearing + (ov.bearingOffset||0);
+  const zoom = 15.3 + base.relief*1.5 + (ov.zoomOffset||0);
+  const pitch = Math.max(38, Math.min(70, 57 - base.relief*4 + (ov.pitchOffset||0)));
+  return { center:[camPoint.lon, camPoint.lat], zoom, pitch, bearing:bearingDeg };
+}
+
+let lastEditLockState = null;
+function syncEditLock(){
+  // locked whenever the person intends playback to be running — even during a card's
+  // brief auto-pause. Only an explicit stop (playing=false) unlocks editing.
+  const locked = playing;
+  if(locked === lastEditLockState) return;
+  lastEditLockState = locked;
+  document.getElementById('editPanel').classList.toggle('locked', locked);
+}
+
+function tick(ts){
+  try{
+    if(lastFrameT==null) lastFrameT = ts;
+    const dt = ts-lastFrameT;
+    lastFrameT = ts;
+
+    if(playing && pausedForPhoto===null){
+      progress += (dt*speed)/PLAYBACK_MS;
+      if(progress>=1){ progress=1; playing=false; updatePlayBtn(); }
+      checkCardTrigger();
+    }
+
+    renderFrame(dt);
+  }catch(err){
+    console.error('tick() frame error (recovered, animation continues):', err);
+    if(!tickErrorNotified){
+      tickErrorNotified = true;
+      showFatalError('재생 중 일시적 오류가 있었지만 자동으로 복구했어요: ' + (err && err.message ? err.message : String(err)));
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+function renderFrame(dt){
+  dt = dt || 16;
+  syncEditLock();
+
+  if(pausedForPhoto!==null && pausedForPhoto!=='intro'){
+    // camera fully frozen while a card is showing — no drift, no re-orientation
+    if(activeFrozenCam) map.jumpTo(activeFrozenCam);
+    const c = cards[pausedForPhoto];
+    if(travelerMarker && c) travelerMarker.setLngLat([c.lon, c.lat]);
+  } else if(pausedForPhoto==='intro'){
+    // hold at trail start during the intro card
+  } else {
+    const nowT = progress*PLAYBACK_MS/speed;
+    const here = sampleCam(progress);
+
+    const lagMeters = Math.max(6, 34 + Math.sin(nowT/5200)*16 - here.relief*26);
+    const lagFrac = Math.min(0.35, lagMeters/Math.max(totalDist,1));
+    const camPoint = sampleCam(Math.max(0, progress - lagFrac));
+
+    const orbitOffset = Math.sin(nowT/9000)*24;
+    const targetBearing = here.bearing + orbitOffset;
+    if(dispBearing===null) dispBearing = targetBearing;
+    const smoothing = 1 - Math.exp(-dt/850);
+    dispBearing = lerpAngle(dispBearing, targetBearing, smoothing);
+
+    const zoom = 15.3 + here.relief*1.5 + Math.sin(nowT/6100)*0.12;
+    const pitch = 57 + Math.sin(nowT/7300)*5 - here.relief*4;
+
+    map.jumpTo({
+      center:[camPoint.lon, camPoint.lat],
+      zoom: zoom,
+      pitch: Math.max(46, Math.min(66, pitch)),
+      bearing: dispBearing
+    });
+
+    if(travelerMarker){
+      travelerMarker.setLngLat([here.lon, here.lat]);
+      travelerMarker.setRotation(here.bearing);
+    }
+  }
+
+  const coords = coordsUpToFrac(progress);
+  if(map.getSource('trail-route')) map.getSource('trail-route').setData({type:'Feature',geometry:{type:'LineString',coordinates:coords}});
+
+  if(map.getSource('card-points')){
+    map.getSource('card-points').setData({type:'FeatureCollection', features: cards.map((c,i)=>({
+      type:'Feature', properties:{idx:i, active: pausedForPhoto===i?1:0}, geometry:{type:'Point',coordinates:[c.lon,c.lat]}
+    }))});
+  }
+
+  updateRidgePlayhead();
+  updateTimeLabel();
+  document.getElementById('scrub').value = Math.round(progress*1000);
+}
+
+function checkCardTrigger(){
+  for(let i=0;i<cards.length;i++){
+    const c = cards[i];
+    if(!c.shown && progress >= c.frac){
+      c.shown = true;
+      showCard(i);
+      break;
+    }
+  }
+}
+
+/* ============================================================
+   STORY CARD (photo / video) + COMMENT FLOAT (plain text)
+   ============================================================ */
+const storyCard = document.getElementById('storyCard');
+const storyMediaWrap = document.getElementById('storyMediaWrap');
+const storyImg = document.getElementById('storyImg');
+const storyVideo = document.getElementById('storyVideo');
+const storyCap = document.getElementById('storyCap');
+const storyMeta = document.getElementById('storyMeta');
+const storyReadbarFill = document.getElementById('storyReadbarFill');
+const commentFloat = document.getElementById('commentFloat');
+const commentText = document.getElementById('commentText');
+const commentBarFill = document.getElementById('commentBarFill');
+const commentDot = document.getElementById('commentDot');
+
+let currentCardManual = false;
+
+function showCard(i, opts){
+  const manual = !!(opts && opts.manualReview);
+  currentCardManual = manual;
+  pausedForPhoto = i;
+  const c = cards[i];
+
+  activeFrozenCam = computeCardCamera(c);
+  map.jumpTo(activeFrozenCam);
+
+  if(c.type==='comment'){
+    commentText.style.color = c.color || '#f5f3ed';
+    commentText.textContent = c.text || '';
+    commentDot.style.background = c.color || '#f5f3ed';
+    commentDot.style.boxShadow = '0 0 0 4px '+(c.color||'#f5f3ed')+'40, 0 3px 10px rgba(0,0,0,0.5)';
+    commentBarFill.style.background = c.color || '#f5f3ed';
+    positionCommentFloat(c);
+    commentFloat.classList.add('show');
+    startCardTimer(c, null, manual);
+  } else {
+    storyCap.style.color = c.color || '#0d1420';
+    storyCap.textContent = c.text || '';
+    if(c.type==='photo'){
+      storyMediaWrap.style.display='block'; storyImg.style.display='block'; storyVideo.style.display='none';
+      storyImg.src = c.url;
+      storyMeta.textContent = (c.estimated ? '위치 추정 · ' : '') + '#'+(i+1)+' / '+cards.length;
+      startCardTimer(c, null, manual);
+    } else if(c.type==='video'){
+      storyMediaWrap.style.display='block'; storyImg.style.display='none'; storyVideo.style.display='block';
+      storyMeta.textContent = '#'+(i+1)+' / '+cards.length;
+      if(c.needsReattach){
+        storyMeta.textContent = '⚠ 영상 재첨부 필요 — 편집 패널에서 다시 올려주세요';
+        startCardTimer(c, 3000, manual);
+      } else {
+        storyVideo.src = c.url;
+        storyVideo.muted = false;
+        storyVideo.currentTime = 0;
+        const onMeta = ()=>{
+          const durMs = (isFinite(storyVideo.duration)?storyVideo.duration*1000:3000) + 600;
+          startCardTimer(c, durMs, manual);
+          storyVideo.removeEventListener('loadedmetadata', onMeta);
+        };
+        storyVideo.addEventListener('loadedmetadata', onMeta);
+        storyVideo.play().catch(()=>{ storyVideo.muted = true; storyVideo.play().catch(()=>{}); });
+      }
+    }
+    positionStoryCard(c);
+    storyCard.classList.add('show');
+  }
+  updateCardEditUI(c);
+}
+
+function startCardTimer(card, forcedMs, manualReview){
+  const readMs = forcedMs!=null ? forcedMs : (card.displayMs || 2500);
+  const fill = card.type==='comment' ? commentBarFill : storyReadbarFill;
+  clearTimeout(photoResumeTimer);
+
+  if(manualReview){
+    // opened deliberately for editing (from the card list, or promoted via pause-mid-card) —
+    // never auto-close; the person closes it with ✕ or by pressing Play again.
+    fill.style.transition = 'transform 300ms ease';
+    fill.style.transform = 'scaleX(0.15)';
+    return;
+  }
+
+  fill.style.transition = 'none';
+  fill.style.transform = 'scaleX(1)';
+  void fill.offsetWidth;
+  fill.style.transition = 'transform '+readMs+'ms linear';
+  fill.style.transform = 'scaleX(0)';
+  photoResumeTimer = setTimeout(()=>resumeFromPhoto(), readMs);
+}
+
+function positionStoryCard(c){
+  if(!map) return;
+  const proj = map.project([c.lon, c.lat]);
+  storyCard.style.left = proj.x+'px';
+  storyCard.style.top = proj.y+'px';
+}
+function positionCommentFloat(c){
+  if(!map) return;
+  const proj = map.project([c.lon, c.lat]);
+  commentFloat.style.left = proj.x+'px';
+  commentFloat.style.top = proj.y+'px';
+}
+
+function resumeFromPhoto(){
+  storyCard.classList.remove('show');
+  commentFloat.classList.remove('show');
+  if(!storyVideo.paused) storyVideo.pause();
+  pausedForPhoto = null;
+  activeFrozenCam = null;
+  currentCardManual = false;
+  updateCardEditUI(null);
+}
+document.getElementById('storyClose').addEventListener('click', ()=>{ clearTimeout(photoResumeTimer); resumeFromPhoto(); });
+document.getElementById('commentClose').addEventListener('click', ()=>{ clearTimeout(photoResumeTimer); resumeFromPhoto(); });
+
+storyCap.addEventListener('input', ()=>{
+  if(pausedForPhoto!=null && pausedForPhoto!=='intro' && cards[pausedForPhoto]){
+    cards[pausedForPhoto].text = storyCap.textContent;
+    cards[pausedForPhoto].textEdited = true;
+    scheduleSave();
+    renderCardList();
+  }
+});
+commentText.addEventListener('input', ()=>{
+  if(pausedForPhoto!=null && pausedForPhoto!=='intro' && cards[pausedForPhoto]){
+    cards[pausedForPhoto].text = commentText.textContent;
+    cards[pausedForPhoto].textEdited = true;
+    scheduleSave();
+    renderCardList();
+  }
+});
+
+setInterval(()=>{
+  if(pausedForPhoto!=null && pausedForPhoto!=='intro' && map){
+    const c = cards[pausedForPhoto];
+    if(c.type==='comment') positionCommentFloat(c); else positionStoryCard(c);
+  }
+},50);
+
+/* ============================================================
+   INTRO CARD
+   ============================================================ */
+const introCard = document.getElementById('introCard');
+const introTitleEl = document.getElementById('introTitle');
+const introDescEl = document.getElementById('introDesc');
+
+function showIntroCard(){
+  progress = 0;
+  cards.forEach(c=>c.shown=false);
+  dispBearing = null;
+
+  if(!introEnabled){
+    pausedForPhoto = null;
+    playing = true;
+    updatePlayBtn();
+    return;
+  }
+
+  pausedForPhoto = 'intro';
+  playing = false;
+  introTitleEl.textContent = journeyTitle || trackTitle();
+  introDescEl.textContent = journeyDesc || '';
+  document.getElementById('introStatDist').textContent = (totalDist/1000).toFixed(1)+'km';
+  document.getElementById('introStatEle').textContent = Math.round(maxEle)+'m';
+  const introImgEl = document.getElementById('introImg');
+  if(introImageUrl){
+    introImgEl.src = introImageUrl;
+    introCard.classList.add('has-image');
+  } else {
+    introCard.classList.remove('has-image');
+  }
+  introCard.classList.add('show');
+  clearTimeout(photoResumeTimer);
+  photoResumeTimer = setTimeout(dismissIntro, introMs);
+}
+function dismissIntro(){
+  introCard.classList.remove('show');
+  pausedForPhoto = null;
+  playing = true;
+  updatePlayBtn();
+}
+document.getElementById('introSkip').addEventListener('click', ()=>{ clearTimeout(photoResumeTimer); dismissIntro(); });
+introTitleEl.addEventListener('input', ()=>{ journeyTitle = introTitleEl.textContent; document.getElementById('tripTitle').textContent = journeyTitle||trackTitle(); document.getElementById('epTitle').value=journeyTitle; scheduleSave(); });
+introDescEl.addEventListener('input', ()=>{ journeyDesc = introDescEl.textContent; document.getElementById('epDesc').value=journeyDesc; scheduleSave(); });
+
+/* ============================================================
+   RIDGE (elevation timeline)
+   ============================================================ */
+const TYPE_COLOR = {photo:'#ff7a45', comment:'#39d3c3', video:'#c774e8'};
+function buildRidge(){
+  const svg = document.getElementById('ridgeSvg');
+  const W=700,H=46;
+  const step = Math.max(1, Math.floor(track.length/140));
+  const pts = [];
+  for(let i=0;i<track.length;i+=step) pts.push(track[i]);
+  if(pts[pts.length-1]!==track[track.length-1]) pts.push(track[track.length-1]);
+  const eMin = Math.min(...track.map(p=>p.ele)), eMax = Math.max(...track.map(p=>p.ele));
+  const eRange = (eMax-eMin)||1;
+
+  const coordStr = pts.map(p=>{
+    const x = p.frac*W;
+    const y = H-6 - ((p.ele-eMin)/eRange)*(H-14);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  const fillPath = 'M0,'+H+' L'+coordStr+' L'+W+','+H+' Z';
+
+  let dots = '';
+  cards.forEach((c)=>{
+    const x = c.frac*W;
+    const y = H-6 - ((c.ele-eMin)/eRange)*(H-14);
+    dots += '<circle class="cardDot" data-frac="'+c.frac+'" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4" fill="'+(TYPE_COLOR[c.type]||'#ff7a45')+'"></circle>';
+  });
+
+  svg.innerHTML = '<path class="ridgeFill" d="'+fillPath+'"></path><polyline class="ridgeLine" points="'+coordStr+'"></polyline>' + dots;
+  svg.querySelectorAll('.cardDot').forEach(dot=>{
+    dot.addEventListener('click', (e)=>{ e.stopPropagation(); seekTo(parseFloat(dot.getAttribute('data-frac'))); });
+  });
+}
+function updateRidgePlayhead(){
+  const wrap = document.getElementById('ridgeWrap');
+  const ph = document.getElementById('playhead');
+  ph.style.left = (progress*wrap.clientWidth)+'px';
+}
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+function wireControls(){
+  const playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', ()=>{
+    if(pausedForPhoto==='intro') return;
+
+    if(playing){
+      // pausing — if a card auto-triggered during play is currently showing, promote it to
+      // manual review so it doesn't get yanked away by its timer while the person edits it.
+      playing = false;
+      if(pausedForPhoto!=null && !currentCardManual){
+        currentCardManual = true;
+        clearTimeout(photoResumeTimer);
+        const c = cards[pausedForPhoto];
+        const fill = c.type==='comment' ? commentBarFill : storyReadbarFill;
+        fill.style.transition = 'transform 300ms ease';
+        fill.style.transform = 'scaleX(0.15)';
+        updateCardEditUI(c);
+      }
+    } else {
+      // resuming — close whatever card is open (editing is done) and continue
+      if(progress>=1) { progress=0; cards.forEach(c=>c.shown=false); dispBearing=null; }
+      if(pausedForPhoto!=null){ clearTimeout(photoResumeTimer); resumeFromPhoto(); }
+      playing = true;
+    }
+    updatePlayBtn();
+  });
+
+  document.getElementById('restartBtn').addEventListener('click', ()=>{
+    clearTimeout(photoResumeTimer);
+    storyCard.classList.remove('show');
+    commentFloat.classList.remove('show');
+    pausedForPhoto=null;
+    currentCardManual = false;
+    showIntroCard();
+    updatePlayBtn();
+  });
+
+  document.querySelectorAll('.spd').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.spd').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      speed = parseFloat(btn.getAttribute('data-s'));
+    });
+  });
+
+  const scrub = document.getElementById('scrub');
+  scrub.addEventListener('input', ()=>{ seekTo(scrub.value/1000); });
+}
+function seekTo(frac){
+  progress = Math.max(0,Math.min(1,frac));
+  cards.forEach(c=>{ c.shown = c.frac < progress; });
+  pausedForPhoto=null; clearTimeout(photoResumeTimer);
+  storyCard.classList.remove('show'); commentFloat.classList.remove('show');
+  currentCardManual = false;
+  activeFrozenCam = null;
+  updateCardEditUI(null);
+  dispBearing = null;
+}
+function updatePlayBtn(){
+  document.getElementById('playBtn').textContent = playing ? '❚❚' : '▶';
+}
+function updateTimeLabel(){
+  const totalS = Math.round(PLAYBACK_MS/1000/speed);
+  const curS = Math.round(progress*PLAYBACK_MS/1000/speed);
+  const fmt = s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  document.getElementById('timeLabel').textContent = fmt(curS)+' / '+fmt(totalS);
+}
+
+/* ============================================================
+   EDIT PANEL TOGGLE (simple open/close — no more "clean mode")
+   ============================================================ */
+document.getElementById('modeToggle').addEventListener('click', ()=>{
+  const nowOpen = document.body.classList.toggle('editing');
+  document.getElementById('modeToggle').textContent = nowOpen ? '✕ 편집창 닫기' : '✎ 편집창 열기';
+  setTimeout(()=>{ if(map) map.resize(); },260);
+});
+
+/* ============================================================
+   EDIT PANEL
+   ============================================================ */
+function wireEditPanel(){
+  const epTitle = document.getElementById('epTitle');
+  const epDesc = document.getElementById('epDesc');
+  const epIntroMs = document.getElementById('epIntroMs');
+  epTitle.addEventListener('input', ()=>{ journeyTitle = epTitle.value; document.getElementById('tripTitle').textContent = journeyTitle||trackTitle(); scheduleSave(); });
+  epDesc.addEventListener('input', ()=>{ journeyDesc = epDesc.value; scheduleSave(); });
+  epIntroMs.addEventListener('input', ()=>{ introMs = parseInt(epIntroMs.value,10)*1000; document.getElementById('epIntroMsVal').textContent = epIntroMs.value+'초'; scheduleSave(); });
+
+  document.querySelectorAll('.typeTab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      document.querySelectorAll('.typeTab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      addType = tab.getAttribute('data-type');
+      document.getElementById('addPhotoRow').style.display = addType==='photo' ? 'block':'none';
+      document.getElementById('addVideoRow').style.display = addType==='video' ? 'block':'none';
+      document.getElementById('addDurationRow').style.display = addType==='video' ? 'none':'block';
+
+      // sensible default color per type: comments float over the map (white reads best),
+      // photo/video captions sit on the cream card (dark reads best) — user can still override.
+      selectedColor = (addType==='comment') ? '#ffffff' : '#0d1420';
+      document.querySelectorAll('#addColorSwatches .swatch').forEach(s=>{
+        s.classList.toggle('active', s.getAttribute('data-color')===selectedColor);
+      });
+    });
+  });
+
+  document.querySelectorAll('#addColorSwatches .swatch').forEach(sw=>{
+    sw.addEventListener('click', ()=>{
+      document.querySelectorAll('#addColorSwatches .swatch').forEach(s=>s.classList.remove('active'));
+      sw.classList.add('active');
+      selectedColor = sw.getAttribute('data-color');
+    });
+  });
+
+  document.querySelectorAll('#editColorSwatches .swatch').forEach(sw=>{
+    sw.addEventListener('click', ()=>{
+      if(pausedForPhoto==null || pausedForPhoto==='intro') return;
+      const c = cards[pausedForPhoto];
+      c.color = sw.getAttribute('data-color');
+      document.querySelectorAll('#editColorSwatches .swatch').forEach(s=>s.classList.remove('active'));
+      sw.classList.add('active');
+      if(c.type==='comment'){
+        commentText.style.color = c.color;
+        commentDot.style.background = c.color;
+        commentBarFill.style.background = c.color;
+      } else {
+        storyCap.style.color = c.color;
+      }
+      renderCardList();
+      scheduleSave();
+    });
+  });
+
+  document.getElementById('editDuration').addEventListener('input', e=>{
+    if(pausedForPhoto==null || pausedForPhoto==='intro') return;
+    const c = cards[pausedForPhoto];
+    const secs = parseFloat(e.target.value);
+    document.getElementById('editDurationVal').textContent = secs+'초';
+    if(c.type==='video') return; // video duration is derived from the clip itself
+    c.displayMs = Math.round(secs*1000);
+    startCardTimer(c, null, true); // stays open — editing only happens while stopped
+    scheduleSave();
+  });
+
+  document.querySelectorAll('input[name=vidsrc]').forEach(r=>{
+    r.addEventListener('change', ()=>{
+      const isFile = document.querySelector('input[name=vidsrc]:checked').value==='file';
+      document.getElementById('addVideoFile').style.display = isFile ? 'block':'none';
+      document.getElementById('addVideoUrl').style.display = isFile ? 'none':'block';
+    });
+  });
+
+  document.getElementById('addDuration').addEventListener('input', e=>{
+    document.getElementById('addDurationVal').textContent = e.target.value+'초';
+  });
+
+  document.getElementById('addCardBtn').addEventListener('click', addCardAtCurrentPoint);
+
+  ['camBearing','camZoom','camPitch'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', onCamSliderChange);
+  });
+  document.getElementById('camResetBtn').addEventListener('click', ()=>{
+    if(pausedForPhoto!=null && pausedForPhoto!=='intro'){
+      cards[pausedForPhoto].camOverride = null;
+      updateCardEditUI(cards[pausedForPhoto]);
+      activeFrozenCam = computeCardCamera(cards[pausedForPhoto]);
+      map.jumpTo(activeFrozenCam);
+      scheduleSave();
+    }
+  });
+
+  document.getElementById('clearSavedBtn').addEventListener('click', clearSavedState);
+
+  document.getElementById('epIntroImgInput').addEventListener('change', e=>{
+    const f = e.target.files[0];
+    if(!f) return;
+    introImageFile = f;
+    introImageUrl = URL.createObjectURL(f);
+    if(pausedForPhoto==='intro'){
+      document.getElementById('introImg').src = introImageUrl;
+      introCard.classList.add('has-image');
+    }
+  });
+  document.getElementById('epIntroImgClear').addEventListener('click', ()=>{
+    introImageFile = null;
+    introImageUrl = '';
+    document.getElementById('epIntroImgInput').value = '';
+    if(pausedForPhoto==='intro'){ introCard.classList.remove('has-image'); }
+  });
+
+  document.getElementById('introToggleBtn').addEventListener('click', ()=>{
+    introEnabled = !introEnabled;
+    document.getElementById('introToggleBtn').classList.toggle('active', introEnabled);
+    scheduleSave();
+  });
+  document.getElementById('introToggleBtn').classList.toggle('active', introEnabled);
+}
+
+function onCamSliderChange(){
+  if(pausedForPhoto==null || pausedForPhoto==='intro') return;
+  const c = cards[pausedForPhoto];
+  const bearingOffset = parseFloat(document.getElementById('camBearing').value);
+  const zoomOffset = parseFloat(document.getElementById('camZoom').value)/10;
+  const pitchOffset = parseFloat(document.getElementById('camPitch').value);
+  c.camOverride = {bearingOffset, zoomOffset, pitchOffset};
+  document.getElementById('camBearingVal').textContent = bearingOffset+'°';
+  document.getElementById('camZoomVal').textContent = zoomOffset.toFixed(1);
+  document.getElementById('camPitchVal').textContent = pitchOffset+'°';
+  activeFrozenCam = computeCardCamera(c);
+  map.jumpTo(activeFrozenCam);
+  scheduleSave();
+}
+function updateCardEditUI(card){
+  const section = document.getElementById('cardEditSection');
+  if(!card){ section.style.display='none'; return; }
+  section.style.display='block';
+
+  const durSecs = (card.displayMs||2500)/1000;
+  document.getElementById('editDuration').value = durSecs;
+  document.getElementById('editDurationVal').textContent = durSecs+'초';
+  document.getElementById('editDuration').disabled = (card.type==='video');
+  document.getElementById('editDuration').parentElement.style.opacity = (card.type==='video') ? 0.4 : 1;
+
+  document.querySelectorAll('#editColorSwatches .swatch').forEach(s=>{
+    s.classList.toggle('active', s.getAttribute('data-color')===(card.color||'#0d1420'));
+  });
+
+  const ov = card.camOverride || {bearingOffset:0, zoomOffset:0, pitchOffset:0};
+  document.getElementById('camBearing').value = ov.bearingOffset||0;
+  document.getElementById('camZoom').value = Math.round((ov.zoomOffset||0)*10);
+  document.getElementById('camPitch').value = ov.pitchOffset||0;
+  document.getElementById('camBearingVal').textContent = (ov.bearingOffset||0)+'°';
+  document.getElementById('camZoomVal').textContent = (ov.zoomOffset||0).toFixed(1);
+  document.getElementById('camPitchVal').textContent = (ov.pitchOffset||0)+'°';
+}
+
+function addCardAtCurrentPoint(){
+  const here = sampleCam(progress);
+  const text = document.getElementById('addText').value.trim();
+  const durationMs = Math.round(parseFloat(document.getElementById('addDuration').value)*1000);
+
+  const base = {
+    id: cardIdCounter++, frac: progress, lat: here.lat, lon: here.lon, ele: here.ele,
+    text: text, color: selectedColor, displayMs: durationMs, camOverride:null, shown:false, estimated:false, textEdited:true
+  };
+
+  if(addType==='comment'){
+    cards.push(Object.assign(base, {type:'comment', url:''}));
+    finishAddCard();
+  } else if(addType==='photo'){
+    const f = document.getElementById('addPhotoFile').files[0];
+    if(!f){ showFatalError('추가할 사진 파일을 선택해주세요.'); return; }
+    cards.push(Object.assign(base, {type:'photo', url:URL.createObjectURL(f), sourceFileName:null}));
+    finishAddCard();
+  } else if(addType==='video'){
+    const isFile = document.querySelector('input[name=vidsrc]:checked').value==='file';
+    if(isFile){
+      const f = document.getElementById('addVideoFile').files[0];
+      if(!f){ showFatalError('추가할 영상 파일을 선택해주세요.'); return; }
+      cards.push(Object.assign(base, {type:'video', url:URL.createObjectURL(f), isRemote:false}));
+    } else {
+      const url = document.getElementById('addVideoUrl').value.trim();
+      if(!url){ showFatalError('영상 URL을 입력해주세요.'); return; }
+      cards.push(Object.assign(base, {type:'video', url, isRemote:true}));
+    }
+    finishAddCard();
+  }
+}
+function finishAddCard(){
+  cards.sort((a,b)=>a.frac-b.frac);
+  document.getElementById('addText').value='';
+  buildRidge();
+  renderCardList();
+  document.getElementById('statPhotos').textContent = cards.length;
+  scheduleSave();
+}
+
+function renderCardList(){
+  const wrap = document.getElementById('cardListWrap');
+  document.getElementById('cardCount').textContent = cards.length;
+  wrap.innerHTML='';
+  const badgeChar = {photo:'🖼',comment:'💬',video:'🎬'};
+  cards.forEach((c,i)=>{
+    const row = document.createElement('div');
+    row.className = 'cardListItem' + (pausedForPhoto===i?' active':'');
+    row.innerHTML =
+      '<div class="ci-badge" style="background:'+(TYPE_COLOR[c.type]||'#888')+'22;color:'+(TYPE_COLOR[c.type]||'#888')+';">'+badgeChar[c.type]+'</div>' +
+      '<div class="ci-text">'+(c.text ? c.text.slice(0,30) : '('+c.type+')')+(c.needsReattach?' ⚠':'')+'</div>' +
+      '<div class="ci-del">✕</div>';
+    row.querySelector('.ci-text').addEventListener('click', ()=>{ jumpToCard(i); });
+    row.querySelector('.ci-badge').addEventListener('click', ()=>{ jumpToCard(i); });
+    row.querySelector('.ci-del').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      cards.splice(i,1);
+      buildRidge(); renderCardList();
+      document.getElementById('statPhotos').textContent = cards.length;
+      scheduleSave();
+    });
+    wrap.appendChild(row);
+  });
+}
+function jumpToCard(i){
+  clearTimeout(photoResumeTimer);
+  storyCard.classList.remove('show');
+  commentFloat.classList.remove('show');
+  playing = false; updatePlayBtn();
+  progress = cards[i].frac;
+  cards.forEach((c,j)=>{ c.shown = j<=i; });
+  dispBearing = null;
+  showCard(i, {manualReview:true});
+  renderCardList();
+}
+</script>
+</body>
+</html>
