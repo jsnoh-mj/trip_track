@@ -21,6 +21,10 @@ This software is provided "as is"
 without warranty of any kind.
 Use at your own risk.
 
+### 📌 Contributions
+Thank you for your interest in this project. At this time, this repository is maintained solely by the author, and Pull Requests are not being accepted.
+If you find a bug or have a suggestion, please open an Issue instead.
+
 ### 📌 개발 방법 및 시연에 대해서 궁금하신 분은 아래 제 개인 블로그 글 참고 하세요.
 https://blog.naver.com/megajune/224344468864
 도움 되셨다면 좋아요! 
