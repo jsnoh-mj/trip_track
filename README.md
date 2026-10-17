@@ -8,6 +8,7 @@ GPX 경로와 사진만 있으면, 3D 지형 위를 날아다니는 시네마틱
 #
 #
 #
+https://youtu.be/apkuRaHAOLI
 #
 
 **메뉴얼 페이지**
