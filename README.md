@@ -8,7 +8,8 @@ GPX 경로와 사진만 있으면, 3D 지형 위를 날아다니는 시네마틱
 #
 #
 #
-https://youtu.be/apkuRaHAOLI
+**실제 이 앱으로 play한 결과를 OBS Studio를 이용해서 캡쳐하여 영상으로 만든 것**
+[![YouTube Video](https://img.youtube.com/vi/apkuRaHAOLI/maxresdefault.jpg)](https://www.youtube.com/watch?v=apkuRaHAOLI)
 #
 
 **메뉴얼 페이지**
